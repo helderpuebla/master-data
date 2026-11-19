@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.materiais-*.tmp
+.pyinstaller-build/
+atualizar-materiais.spec
+__pycache__/
+*.py[cod]

@@ -1,0 +1,1201 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle de Master Data</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #172b4d;
+      background: #f4f7fb;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    * { box-sizing: border-box; }
+
+    body { margin: 0; min-width: 320px; }
+
+    .topbar {
+      background: #fff;
+      border-bottom: 1px solid #e3e9f1;
+      padding: 22px max(24px, calc((100% - 1120px) / 2));
+    }
+
+    .brand {
+      align-items: center;
+      color: #123b68;
+      display: flex;
+      font-size: 15px;
+      font-weight: 700;
+      gap: 12px;
+      letter-spacing: .02em;
+    }
+
+    .brand-mark {
+      align-items: center;
+      background: #e8f2fc;
+      border-radius: 10px;
+      color: #1264a3;
+      display: flex;
+      font-size: 13px;
+      height: 36px;
+      justify-content: center;
+      width: 36px;
+    }
+
+    main { margin: 38px auto 64px; max-width: 1120px; padding: 0 24px; }
+
+    .page-heading {
+      align-items: flex-end;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: space-between;
+      margin-bottom: 26px;
+    }
+
+    h1 { font-size: clamp(25px, 4vw, 32px); letter-spacing: -.03em; margin: 0 0 8px; }
+    .subtitle { color: #62738a; font-size: 14px; margin: 0; }
+
+    .snapshot {
+      background: #fff;
+      border: 1px solid #e3e9f1;
+      border-radius: 10px;
+      color: #52657d;
+      font-size: 12px;
+      padding: 10px 13px;
+    }
+
+    .stats {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 26px;
+    }
+
+    .stat {
+      background: #fff;
+      border: 1px solid #e3e9f1;
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+
+    .stat-filter { color: inherit; cursor: pointer; font: inherit; text-align: left; width: 100%; }
+    .stat-filter:hover, .stat-filter[aria-pressed="true"] { border-color: #9ab8d5; box-shadow: 0 2px 8px #173c6510; }
+    .stat-filter:focus-visible { outline: 2px solid #2879b9; outline-offset: 2px; }
+    .stat-label { color: #687b91; font-size: 12px; margin-bottom: 8px; }
+    .stat-value { color: #18395e; font-size: 25px; font-weight: 700; }
+
+    .section-heading {
+      align-items: baseline;
+      display: flex;
+      gap: 10px;
+      margin: 30px 0 14px;
+    }
+
+    h2 { font-size: 17px; margin: 0; }
+    .section-count { color: #74849a; font-size: 12px; }
+
+    .material-list { display: grid; gap: 16px; }
+
+    .material-card {
+      background: #fff;
+      border: 1px solid #e3e9f1;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .material-header {
+      align-items: flex-start;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: space-between;
+      padding: 20px 22px 18px;
+    }
+
+    .material-number { color: #173c65; font-size: 17px; font-weight: 700; }
+    .material-description { color: #60738b; font-size: 13px; margin-top: 5px; }
+    .material-meta { color: #8795a7; font-size: 11px; line-height: 1.5; margin-top: 6px; }
+
+    .badges { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+    .badge {
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 10px;
+    }
+
+    .badge-status { background: #fff5dc; color: #8a5a00; }
+    .badge-type { background: #edf3fa; color: #4b617a; }
+
+    .history-card { border-radius: 10px; }
+    .material-summary {
+      align-items: center;
+      cursor: pointer;
+      display: flex;
+      list-style: none;
+      min-height: 68px;
+      padding: 14px 18px;
+    }
+
+    .material-summary::-webkit-details-marker { display: none; }
+    .material-summary:hover { background: #f8fafc; }
+    .material-summary:focus-visible { outline: 2px solid #2879b9; outline-offset: -2px; }
+    .material-summary::after {
+      border-bottom: 2px solid #71839a;
+      border-right: 2px solid #71839a;
+      content: "";
+      flex: 0 0 9px;
+      height: 9px;
+      margin-left: 16px;
+      transform: rotate(45deg) translateY(-2px);
+      transition: transform .18s ease;
+      width: 9px;
+    }
+
+    .material-card[open] > .material-summary::after { transform: rotate(225deg) translate(-2px, -1px); }
+    .history-summary-main { align-items: center; display: flex; flex: 1; flex-wrap: wrap; gap: 6px 24px; min-width: 0; }
+    .history-name { color: #294560; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+    .history-number { color: #71839a; font-size: 12px; white-space: nowrap; }
+    .history-number strong { color: #38536e; font-weight: 700; }
+    .history-card[open] > .timeline { background: #fcfdff; }
+    .history-card .material-meta { margin: 0 0 16px; }
+
+    .timeline {
+      border-top: 1px solid #edf0f5;
+      padding: 20px 22px 22px;
+    }
+
+    .timeline-title { color: #50647b; font-size: 12px; font-weight: 700; margin-bottom: 16px; }
+    .steps { margin: 0 auto; max-width: 660px; }
+    .workflow-section { border: 1px solid #e1e7ef; border-radius: 10px; margin: 0 auto 15px; max-width: 700px; overflow: hidden; }
+    .workflow-section:last-child { margin-bottom: 0; }
+    .workflow-heading { color: #fff; font-size: 13px; font-weight: 800; padding: 10px 14px; }
+    .lane-master .workflow-heading { background: #3274b8; }
+    .lane-pvl .workflow-heading { background: #218781; }
+    .lane-pmbr .workflow-heading { background: #7053a8; }
+    .lane-pcd .workflow-heading { background: #ce7028; }
+    .workflow-section-body { padding: 16px 14px 5px; }
+    .workflow-section .step { max-width: 600px; }
+    .workflow-section .step-content { border-color: #d7e0eb; }
+    .lane-master .step.current .step-content { border-color: #3274b8; }
+    .lane-pvl .step.current .step-content { border-color: #218781; }
+    .lane-pmbr .step.current .step-content { border-color: #7053a8; }
+    .lane-pcd .step.current .step-content { border-color: #ce7028; }
+    .step { align-items: stretch; display: grid; gap: 14px; grid-template-columns: 20px minmax(0, 1fr); min-height: 54px; position: relative; }
+    .step:not(:last-child)::after { background: #dce4ee; content: ""; left: 8px; position: absolute; top: 18px; bottom: -1px; width: 3px; }
+    .step.done:not(:last-child)::after { background: #24936a; }
+    .step.rejected:not(:last-child)::after { background: #d94b4b; }
+    .step-marker { background: #fff; border: 2px solid #cbd6e2; border-radius: 50%; height: 18px; margin-top: 1px; position: relative; width: 18px; z-index: 1; }
+    .step.done .step-marker { background: #24936a; border-color: #24936a; }
+    .step.current .step-marker { background: #fff; border-color: #2879b9; box-shadow: 0 0 0 4px #e6f2fb; }
+    .step.rejected .step-marker { background: #fff; border-color: #d94b4b; }
+    .step-content { background: #fff; border: 1px solid #cbd9e8; border-radius: 9px; margin-bottom: 12px; min-width: 0; padding: 10px 14px; }
+    .step.done .step-content { background: #f7fbff; }
+    .step.current .step-content { border-color: #2879b9; box-shadow: 0 2px 6px #173c651a; }
+    .step.rejected .step-content { background: #fff8f7; border-color: #e7aaaa; }
+    .step-label { color: #294560; font-size: 13px; font-weight: 700; }
+    .step-detail { color: #738399; font-size: 11px; margin-top: 4px; }
+    .step-control { margin-top: 10px; }
+    .step-control[hidden] { display: none; }
+    .action-row {
+      align-items: center;
+      background: #f8fafc;
+      border-top: 1px solid #edf0f5;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+      padding: 14px 22px;
+    }
+
+    .case-input { border: 1px solid #bdcad9; border-radius: 6px; color: #18395e; font: inherit; font-size: 13px; max-width: 340px; padding: 9px 10px; width: 100%; }
+    .case-input:focus { border-color: #2879b9; outline: 2px solid #d6eafa; }
+    .decision-options { display: flex; flex-wrap: wrap; gap: 10px; }
+    .decision-button { background: #fff; border: 1px solid #bdcad9; border-radius: 6px; color: #38536e; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; padding: 8px 18px; }
+    .decision-button:hover:not(:disabled) { border-color: #2879b9; }
+    .decision-button.selected-yes { background: #e8f5ed; border-color: #24936a; color: #18734f; }
+    .decision-button.selected-no { background: #fff0ef; border-color: #d94b4b; color: #a42e2e; }
+    .decision-button:disabled { cursor: not-allowed; opacity: .5; }
+    .check-label { align-items: center; color: #294560; cursor: pointer; display: flex; font-size: 12px; font-weight: 600; gap: 8px; }
+    .check-label input { accent-color: #16835d; height: 16px; width: 16px; }
+    .release-banner { background: #eaf6ef; border: 1px solid #b7dfc7; border-radius: 9px; color: #18734f; font-size: 13px; font-weight: 800; margin: 3px auto 0; max-width: 460px; padding: 13px 16px; text-align: center; }
+    .release-banner.pending { background: #f5f7fa; border-color: #dce4ee; color: #75869a; }
+    .complete-banner { background: #eaf6ef; border: 1px solid #b7dfc7; border-radius: 8px; color: #18734f; font-size: 12px; font-weight: 800; margin: 8px auto 15px; max-width: 600px; padding: 11px 14px; text-align: center; }
+    .complete-banner.pending { background: #f5f7fa; border-color: #dce4ee; color: #75869a; }
+    .save-note { color: #75869a; font-size: 11px; }
+    .future-note { color: #64778d; font-size: 12px; line-height: 1.5; margin: 16px 0 0; }
+
+    .notice {
+      background: #edf5fc;
+      border: 1px solid #d5e7f6;
+      border-radius: 10px;
+      color: #385b79;
+      font-size: 12px;
+      line-height: 1.55;
+      margin-top: 22px;
+      padding: 13px 15px;
+    }
+
+    .error { background: #fff0ef; border-color: #f2c8c4; color: #8d2921; }
+
+    @media (max-width: 640px) {
+      main { margin-top: 26px; }
+      .stats { grid-template-columns: 1fr; gap: 9px; }
+      .stat { align-items: center; display: flex; justify-content: space-between; padding: 13px 16px; }
+      .stat-label { margin: 0; }
+      .stat-value { font-size: 20px; }
+      .material-header, .timeline { padding-left: 17px; padding-right: 17px; }
+      .material-summary { gap: 10px; padding: 13px 15px; }
+      .history-summary-main { align-items: flex-start; flex-direction: column; gap: 5px; }
+      .material-summary .badges { justify-content: flex-end; }
+      .material-summary::after { margin-left: 8px; }
+      .step-content { padding: 9px 11px; }
+      .step-label { font-size: 12px; }
+      .release-banner { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">MD</span> MASTER DATA · PASX</div>
+  </header>
+
+  <main>
+    <div class="page-heading">
+      <div>
+        <h1>Controle de Master Data</h1>
+        <p class="subtitle">Acompanhe o fluxo de aprovação e libere o material para a linha produtiva.</p>
+      </div>
+      <div class="snapshot" id="snapshot">Carregando horário da extração SQL…</div>
+    </div>
+
+    <section class="stats" aria-label="Resumo e filtros de materiais">
+      <button class="stat stat-filter" type="button" data-filter="all" aria-controls="material-list" aria-pressed="true">
+        <div class="stat-label">Materiais no histórico</div><div class="stat-value" id="total-count">—</div>
+      </button>
+      <button class="stat stat-filter" type="button" data-filter="pending" aria-controls="material-list" aria-pressed="false">
+        <div class="stat-label">Aguardando liberação</div><div class="stat-value" id="pending-count">—</div>
+      </button>
+      <button class="stat stat-filter" type="button" data-filter="released" aria-controls="material-list" aria-pressed="false">
+        <div class="stat-label">Liberados para produção</div><div class="stat-value" id="done-count">—</div>
+      </button>
+    </section>
+
+    <div class="section-heading">
+      <h2 id="material-list-heading">Materiais no histórico</h2>
+      <span class="section-count" id="list-count"></span>
+    </div>
+    <section class="material-list" id="material-list" aria-live="polite"></section>
+
+    <div class="notice" id="notice">
+      Todos os materiais encontrados como NEW permanecem no histórico, mesmo quando deixam de aparecer na consulta. As etapas são compartilhadas pelo Supabase.
+    </div>
+  </main>
+
+  <script>
+    let materials = [];
+    let generatedAt = null;
+    let currentRecords = {};
+    let lastRemoteRecords = null;
+    function emptyQualityPhase() {
+      return {
+        configDone: false,
+        draftDone: false,
+        circulationDone: false,
+        firstSignatureDone: false,
+        secondSignatureDone: false,
+        qCaseNumber: "",
+        effectiveDone: false,
+        qaApproved: null,
+        qaDecisionAt: null,
+        rejectedCases: []
+      };
+    }
+
+    function emptySevenItemWorkflow() {
+      return {
+        master: emptyQualityPhase(),
+        pvl: emptyQualityPhase(),
+        pmbr: emptyQualityPhase(),
+        pcd: { created: false, doubleChecked: false }
+      };
+    }
+
+    function getMaterialFlow(number) {
+      if (number.startsWith("7")) return "seven";
+      if (number.startsWith("8")) return "eight";
+      if (number.startsWith("68274")) return "legacy-seven";
+      if (number.startsWith("1001")) return "legacy-eight";
+      return "unsupported";
+    }
+
+    function isSevenItem(number) {
+      return ["seven", "legacy-seven"].includes(getMaterialFlow(number));
+    }
+
+    const list = document.getElementById("material-list");
+    const notice = document.getElementById("notice");
+    const initialData = {};
+    let materialFilter = "all";
+
+    for (const filterButton of document.querySelectorAll(".stat-filter")) {
+      filterButton.addEventListener("click", () => {
+        materialFilter = filterButton.dataset.filter;
+        render(readRecords(currentRecords));
+      });
+    }
+
+    function setMaterials(feed) {
+      if (!feed || !Array.isArray(feed.materials) || typeof feed.generatedAt !== "string") {
+        throw new Error("O servidor retornou materiais em formato inválido.");
+      }
+      if (Number.isNaN(Date.parse(feed.generatedAt))) {
+        throw new Error("A data da extração do servidor é inválida.");
+      }
+      const seen = new Set();
+      materials = feed.materials.map((item) => {
+        if (!item || typeof item.number !== "string" ||
+          typeof item.description !== "string" || typeof item.status !== "string") {
+          throw new Error("Há um material com campos inválidos no servidor.");
+        }
+        const number = item.number.trim();
+        if (!number || seen.has(number)) {
+          throw new Error(`Número de material ausente ou duplicado: ${number || "(vazio)"}.`);
+        }
+        if (getMaterialFlow(number) === "unsupported") {
+          throw new Error(`Tipo de material não configurado: ${number}.`);
+        }
+        seen.add(number);
+        const firstSeenAt = typeof item.firstSeenAt === "string" ? item.firstSeenAt : feed.generatedAt;
+        const lastSeenAt = typeof item.lastSeenAt === "string" ? item.lastSeenAt : feed.generatedAt;
+        if (Number.isNaN(Date.parse(firstSeenAt)) || Number.isNaN(Date.parse(lastSeenAt))) {
+          throw new Error(`Datas de histórico inválidas para o material ${number}.`);
+        }
+        return {
+          number,
+          description: item.description.trim(),
+          status: item.status.trim(),
+          isNew: item.isNew !== false,
+          firstSeenAt,
+          lastSeenAt
+        };
+      });
+      generatedAt = feed.generatedAt;
+      document.getElementById("snapshot").textContent =
+        `Última extração SQL: ${formatDate(generatedAt)} · PASX06P`;
+      for (const material of materials) {
+        if (!initialData[material.number]) {
+          initialData[material.number] = {
+            description: material.description,
+            firstSeenAt: material.firstSeenAt,
+            lastSeenAt: material.lastSeenAt,
+            isNew: material.isNew,
+            sapCreated: true,
+            sapQaApproved: true,
+            pasxNew: true,
+            configDone: false,
+            configDoneAt: null,
+            qCaseNumber: "",
+            qaApproved: null,
+            qaDecisionAt: null,
+            acknowledge: false,
+            acknowledgedAt: null,
+            rejectedCases: [],
+            ...(isSevenItem(material.number) ? { workflow: emptySevenItemWorkflow() } : {})
+          };
+        } else {
+          initialData[material.number].description = material.description;
+          initialData[material.number].firstSeenAt = material.firstSeenAt;
+          initialData[material.number].lastSeenAt = material.lastSeenAt;
+          initialData[material.number].isNew = material.isNew;
+        }
+      }
+    }
+
+    function normalizeQualityPhase(value) {
+      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      return {
+        ...emptyQualityPhase(),
+        ...source,
+        configDone: Boolean(source.configDone),
+        draftDone: Boolean(source.draftDone),
+        circulationDone: Boolean(source.circulationDone),
+        firstSignatureDone: Boolean(source.firstSignatureDone),
+        secondSignatureDone: Boolean(source.secondSignatureDone),
+        qCaseNumber: typeof source.qCaseNumber === "string" ? source.qCaseNumber : "",
+        effectiveDone: Boolean(source.effectiveDone),
+        qaApproved: typeof source.qaApproved === "boolean" ? source.qaApproved : null,
+        qaDecisionAt: source.qaDecisionAt || null,
+        rejectedCases: Array.isArray(source.rejectedCases) ? source.rejectedCases : []
+      };
+    }
+
+    function normalizeSevenItemWorkflow(value) {
+      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const pcd = source.pcd && typeof source.pcd === "object" && !Array.isArray(source.pcd) ? source.pcd : {};
+      return {
+        master: normalizeQualityPhase(source.master),
+        pvl: normalizeQualityPhase(source.pvl),
+        pmbr: normalizeQualityPhase(source.pmbr),
+        pcd: { created: Boolean(pcd.created), doubleChecked: Boolean(pcd.doubleChecked) }
+      };
+    }
+
+    function readRecords(savedRecords = currentRecords) {
+      const records = { ...savedRecords };
+      if (!records || typeof records !== "object" || Array.isArray(records)) {
+        throw new Error("Os dados salvos no navegador estão em um formato inválido.");
+      }
+      for (const [number, record] of Object.entries(initialData)) {
+        const previous = records[number] || {};
+        if (typeof previous !== "object" || Array.isArray(previous)) {
+          throw new Error(`O registro do material ${number} está em um formato inválido.`);
+        }
+        const configDone = Boolean(previous.configDone ?? previous.configured);
+        const qCaseNumber = typeof previous.qCaseNumber === "string" ? previous.qCaseNumber : "";
+        const qaApproved = typeof previous.qaApproved === "boolean" &&
+          (previous.qaApproved === false || (configDone && qCaseNumber.trim()))
+          ? previous.qaApproved
+          : null;
+        records[number] = {
+          ...record,
+          ...previous,
+          description: previous.description || record.description,
+          firstSeenAt: record.firstSeenAt,
+          lastSeenAt: record.lastSeenAt,
+          isNew: record.isNew,
+          sapCreated: true,
+          sapQaApproved: true,
+          pasxNew: true,
+          configDone,
+          configDoneAt: previous.configDoneAt || previous.configuredAt || null,
+          qCaseNumber,
+          qaApproved,
+          qaDecisionAt: previous.qaDecisionAt || null,
+          acknowledge: qaApproved === true && Boolean(previous.acknowledge),
+          acknowledgedAt: previous.acknowledgedAt || null,
+          rejectedCases: Array.isArray(previous.rejectedCases) ? previous.rejectedCases : [],
+          ...(isSevenItem(number) ? { workflow: normalizeSevenItemWorkflow(previous.workflow) } : {})
+        };
+      }
+      return records;
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+    }
+
+    function phaseApproved(phase, phaseName) {
+      if (!phase || phase.qaApproved !== true) return false;
+      if (phaseName === "master") return Boolean(phase.configDone && phase.qCaseNumber.trim());
+      return Boolean(phase.draftDone && phase.circulationDone &&
+        phase.firstSignatureDone && phase.secondSignatureDone &&
+        phase.qCaseNumber.trim() && phase.effectiveDone);
+    }
+
+    function isReleased(record, materialNumber) {
+      const flow = materialNumber ? getMaterialFlow(materialNumber) : "unsupported";
+      if (flow === "seven" || flow === "legacy-seven") {
+        const workflow = record?.workflow;
+        return Boolean(phaseApproved(workflow?.master, "master") &&
+          phaseApproved(workflow?.pvl, "pvl") &&
+          phaseApproved(workflow?.pmbr, "pmbr") &&
+          workflow?.pcd?.created && workflow?.pcd?.doubleChecked);
+      }
+      return Boolean(record?.sapCreated && record?.sapQaApproved && record?.pasxNew &&
+        record?.configDone && record?.qCaseNumber?.trim() &&
+        record?.qaApproved === true && record?.acknowledge);
+    }
+
+    function appendWorkflowStep(container, labelText, detailText, state, control) {
+      const step = document.createElement("div");
+      step.className = `step${state.done ? " done" : ""}${state.current ? " current" : ""}${state.rejected ? " rejected" : ""}`;
+      const marker = document.createElement("div");
+      marker.className = "step-marker";
+      const content = document.createElement("div");
+      content.className = "step-content";
+      const label = document.createElement("div");
+      label.className = "step-label";
+      label.textContent = labelText;
+      content.append(label);
+      if (detailText) {
+        const detail = document.createElement("div");
+        detail.className = "step-detail";
+        detail.textContent = detailText;
+        content.append(detail);
+      }
+      if (control) content.append(control);
+      step.append(marker, content);
+      container.append(step);
+    }
+
+    function renderSevenItemPhase({ timeline, records, material, phaseName, title, laneClass, phase, enabled, definitions, prefixSteps = [] }) {
+      const section = document.createElement("section");
+      section.className = `workflow-section ${laneClass}`;
+      const heading = document.createElement("div");
+      heading.className = "workflow-heading";
+      heading.textContent = title;
+      section.append(heading);
+      const body = document.createElement("div");
+      body.className = "workflow-section-body";
+      const stepsContainer = document.createElement("div");
+      stepsContainer.className = "steps";
+      for (const prefixStep of prefixSteps) {
+        appendWorkflowStep(stepsContainer, prefixStep.label, prefixStep.detail, { done: true });
+      }
+      const rejection = phase.rejectedCases.length
+        ? phase.rejectedCases[phase.rejectedCases.length - 1]
+        : null;
+      const qaIndex = definitions.findIndex((definition) => definition.kind === "qa");
+      let priorComplete = enabled;
+
+      for (let index = 0; index < definitions.length; index += 1) {
+        const definition = definitions[index];
+        const value = phase[definition.key];
+        const complete = definition.kind === "case"
+          ? Boolean(value.trim())
+          : definition.kind === "qa" ? phase.qaApproved === true : Boolean(value);
+        const noLaterWork = definitions.slice(index + 1).every((later) => {
+          if (later.kind === "case") return !phase[later.key].trim();
+          if (later.kind === "qa") return phase.qaApproved === null;
+          return !phase[later.key];
+        });
+        const isAfterQa = qaIndex >= 0 && index > qaIndex;
+        const canEdit = priorComplete && noLaterWork &&
+          (isAfterQa ? phase.qaApproved === true : phase.qaApproved === null);
+        let detail = definition.detail || "";
+        let control;
+
+        if (definition.kind === "checkbox") {
+          control = document.createElement("div");
+          control.className = "step-control";
+          const label = document.createElement("label");
+          label.className = "check-label";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.checked = Boolean(value);
+          checkbox.disabled = !canEdit;
+          const accessibleStepLabel = definition.detail
+            ? `${definition.label}, ${definition.detail}`
+            : definition.label;
+          checkbox.setAttribute("aria-label", `${accessibleStepLabel} do material ${material.number.trim()} concluída`);
+          checkbox.addEventListener("change", () => {
+            const updatedPhase = { ...phase, [definition.key]: checkbox.checked };
+            if (!checkbox.checked) {
+              for (const later of definitions.slice(index + 1)) {
+                if (later.kind === "checkbox") updatedPhase[later.key] = false;
+                else if (later.kind === "case") updatedPhase[later.key] = "";
+                else if (later.kind === "qa") {
+                  updatedPhase.qaApproved = null;
+                  updatedPhase.qaDecisionAt = null;
+                }
+              }
+            }
+            saveRecords({
+              ...records,
+              [material.number]: {
+                ...records[material.number],
+                workflow: { ...records[material.number].workflow, [phaseName]: updatedPhase }
+              }
+            }, `${definition.label}: ${checkbox.checked ? "concluída" : "reaberta"}.`, records);
+          });
+          const text = document.createElement("span");
+          text.textContent = definition.controlLabel || `${definition.label} concluída`;
+          label.append(checkbox, text);
+          control.append(label);
+        } else if (definition.kind === "case") {
+          control = document.createElement("div");
+          control.className = "step-control";
+          const input = document.createElement("input");
+          input.className = "case-input";
+          input.type = "text";
+          input.maxLength = 80;
+          input.placeholder = "Informe o número do Q-Case";
+          input.value = value;
+          input.disabled = !canEdit;
+          input.setAttribute("aria-label", `Número do Q-Case de ${title} do material ${material.number.trim()}`);
+          input.addEventListener("change", () => {
+            const updatedPhase = { ...phase, [definition.key]: input.value.trim() };
+            saveRecords({
+              ...records,
+              [material.number]: {
+                ...records[material.number],
+                workflow: { ...records[material.number].workflow, [phaseName]: updatedPhase }
+              }
+            }, `Número do Q-Case de ${title} salvo.`, records);
+          });
+          control.append(input);
+          detail = value.trim() ? `Q-Case: ${value.trim()}` : "Informe o número do Q-Case aberto para o QA";
+        } else {
+          control = document.createElement("div");
+          control.className = "step-control decision-options";
+          for (const decision of [true, false]) {
+            const button = document.createElement("button");
+            button.className = `decision-button${phase.qaApproved === decision ? (decision ? " selected-yes" : " selected-no") : ""}`;
+            button.type = "button";
+            button.textContent = decision ? "Sim, aprovado" : "Não, reprovado";
+            button.disabled = !canEdit;
+            button.setAttribute("aria-label", `QA ${decision ? "aprova" : "reprova"} ${title} do material ${material.number.trim()}`);
+            button.addEventListener("click", () => {
+              const now = new Date().toISOString();
+              const updatedPhase = decision
+                ? { ...phase, qaApproved: true, qaDecisionAt: now }
+                : {
+                    ...emptyQualityPhase(),
+                    rejectedCases: [...phase.rejectedCases, { number: phase.qCaseNumber.trim(), rejectedAt: now }]
+                  };
+              saveRecords({
+                ...records,
+                [material.number]: {
+                  ...records[material.number],
+                  workflow: { ...records[material.number].workflow, [phaseName]: updatedPhase }
+                }
+              }, decision
+                ? `QA aprovou ${title}.`
+                : `QA reprovou ${title}. Somente essa etapa foi reaberta; as etapas anteriores continuam concluídas.`, records);
+            });
+            control.append(button);
+          }
+          detail = phase.qaApproved === true
+            ? `Aprovado em ${formatDate(phase.qaDecisionAt)}`
+            : "Aguardando decisão do QA";
+        }
+
+        if (index === 0 && rejection) {
+          detail = `${detail}${detail ? " · " : ""}Último Q-Case reprovado: ${rejection.number}`;
+        }
+        appendWorkflowStep(stepsContainer, definition.label, detail,
+          { done: complete, current: canEdit && !complete, rejected: index === 0 && Boolean(rejection) }, control);
+        priorComplete = priorComplete && complete;
+      }
+
+      body.append(stepsContainer);
+      section.append(body);
+      timeline.append(section);
+    }
+
+    function renderSevenItemWorkflow(timeline, records, material, workflow) {
+      const masterReady = phaseApproved(workflow.master, "master");
+      const pvlReady = phaseApproved(workflow.pvl, "pvl");
+      const pmbrReady = phaseApproved(workflow.pmbr, "pmbr");
+      const dataComplete = pvlReady && pmbrReady;
+
+      renderSevenItemPhase({
+        timeline, records, material, phaseName: "master", title: "1. Material e Master Data",
+        laneClass: "lane-master", phase: workflow.master, enabled: true,
+        prefixSteps: [
+          { label: "Criação no SAP", detail: "Concluída" },
+          { label: "Aprovação no SAP pelo QA", detail: "Concluída" },
+          { label: "PAS-X com status “New”", detail: "Material recebido com status NEW" }
+        ],
+        definitions: [
+          { key: "configDone", kind: "checkbox", label: "Configuração da Master Data", detail: "Conforme procedimento aplicável · SOP QP175316" },
+          { key: "qCaseNumber", kind: "case", label: "Q-Case para o QA" },
+          { key: "qaApproved", kind: "qa", label: "QA aprova?" }
+        ]
+      });
+
+      const pvlSteps = [
+        { key: "draftDone", kind: "checkbox", label: "Elaboração da PVL" },
+        { key: "circulationDone", kind: "checkbox", label: "PVL em circulação" },
+        { key: "firstSignatureDone", kind: "checkbox", label: "Assinatura no PAS-X", detail: "1ª pessoa da validação" },
+        { key: "secondSignatureDone", kind: "checkbox", label: "Assinatura no PAS-X", detail: "Double check · 2ª pessoa da validação" },
+        { key: "qCaseNumber", kind: "case", label: "Q-Case para o QA" },
+        { key: "qaApproved", kind: "qa", label: "QA aprova?" },
+        { key: "effectiveDone", kind: "checkbox", label: "Efetivação da PVL" }
+      ];
+      renderSevenItemPhase({
+        timeline, records, material, phaseName: "pvl", title: "2. PVL", laneClass: "lane-pvl",
+        phase: workflow.pvl, enabled: masterReady, definitions: pvlSteps
+      });
+
+      const pmbrSteps = [
+        { key: "draftDone", kind: "checkbox", label: "Elaboração da PMBR" },
+        { key: "circulationDone", kind: "checkbox", label: "PMBR em circulação" },
+        { key: "firstSignatureDone", kind: "checkbox", label: "Assinatura no PAS-X", detail: "1ª pessoa da validação" },
+        { key: "secondSignatureDone", kind: "checkbox", label: "Assinatura no PAS-X", detail: "Double check · 2ª pessoa da validação" },
+        { key: "qCaseNumber", kind: "case", label: "Q-Case para o QA" },
+        { key: "qaApproved", kind: "qa", label: "QA aprova?" },
+        { key: "effectiveDone", kind: "checkbox", label: "Efetivação da PMBR" }
+      ];
+      renderSevenItemPhase({
+        timeline, records, material, phaseName: "pmbr", title: "3. PMBR", laneClass: "lane-pmbr",
+        phase: workflow.pmbr, enabled: pvlReady, definitions: pmbrSteps
+      });
+
+      const dataBanner = document.createElement("div");
+      dataBanner.className = `complete-banner${dataComplete ? "" : " pending"}`;
+      dataBanner.textContent = dataComplete
+        ? "MASTER DATA CONCLUÍDA · PVL E PMBR EFETIVADAS E APROVADAS"
+        : "MASTER DATA AGUARDANDO APROVAÇÃO DA PVL E DA PMBR";
+      timeline.append(dataBanner);
+
+      const pcdSection = document.createElement("section");
+      pcdSection.className = "workflow-section lane-pcd";
+      const pcdHeading = document.createElement("div");
+      pcdHeading.className = "workflow-heading";
+      pcdHeading.textContent = "PCD - Pack Config Data";
+      pcdSection.append(pcdHeading);
+      const pcdBody = document.createElement("div");
+      pcdBody.className = "workflow-section-body";
+      const pcdSteps = document.createElement("div");
+      pcdSteps.className = "steps";
+      const pcd = workflow.pcd;
+
+      function addPcdStep(key, labelText, nextKey, enabled) {
+        const control = document.createElement("div");
+        control.className = "step-control";
+        const label = document.createElement("label");
+        label.className = "check-label";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = Boolean(pcd[key]);
+        checkbox.disabled = !enabled;
+        checkbox.setAttribute("aria-label", `${labelText} do material ${material.number.trim()}`);
+        checkbox.addEventListener("change", () => {
+          const updatedPcd = { ...pcd, [key]: checkbox.checked };
+          if (!checkbox.checked && nextKey) updatedPcd[nextKey] = false;
+          saveRecords({
+            ...records,
+            [material.number]: {
+              ...records[material.number],
+              workflow: { ...workflow, pcd: updatedPcd }
+            }
+          }, `${labelText}: ${checkbox.checked ? "concluído" : "reaberto"}.`, records);
+        });
+        const text = document.createElement("span");
+        text.textContent = labelText;
+        label.append(checkbox, text);
+        control.append(label);
+        appendWorkflowStep(pcdSteps, labelText, "", { done: Boolean(pcd[key]), current: enabled && !pcd[key] }, control);
+      }
+
+      addPcdStep("created", "Criação do PCD · Analista 1", "doubleChecked", dataComplete);
+      addPcdStep("doubleChecked", "Duplo check do PCD · Analista 2", null, dataComplete && pcd.created);
+      pcdBody.append(pcdSteps);
+      const release = document.createElement("div");
+      const released = isReleased(records[material.number], material.number);
+      release.className = `release-banner${released ? "" : " pending"}`;
+      release.textContent = released ? "LIBERADO PARA A LINHA PRODUTIVA" : "AGUARDANDO CONCLUSÃO DO PCD";
+      pcdBody.append(release);
+      pcdSection.append(pcdBody);
+      timeline.append(pcdSection);
+    }
+
+    async function saveRecords(updated, successMessage, previousRecords) {
+      const changedNumbers = Object.keys(updated).filter((number) =>
+        JSON.stringify(updated[number]) !== JSON.stringify(previousRecords[number])
+      );
+      if (changedNumbers.length !== 1) {
+        showError("Não foi possível identificar com segurança o material alterado.");
+        return false;
+      }
+      const number = changedNumbers[0];
+      const before = previousRecords[number];
+      const after = updated[number];
+      const diff = (oldValue, newValue) => {
+        if (oldValue && newValue && typeof oldValue === "object" && typeof newValue === "object" &&
+            !Array.isArray(oldValue) && !Array.isArray(newValue)) {
+          const nested = {};
+          for (const key of Object.keys(newValue)) {
+            if (JSON.stringify(oldValue[key]) !== JSON.stringify(newValue[key])) {
+              nested[key] = diff(oldValue[key], newValue[key]);
+            }
+          }
+          return nested;
+        }
+        return newValue;
+      };
+      const patch = diff(before, after);
+      try {
+        const response = await fetch("./api/progress", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ number, patch })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        currentRecords = {
+          ...currentRecords,
+          [number]: { ...(currentRecords[number] || {}), ...result.progress }
+        };
+        currentRecords = readRecords(currentRecords);
+        render(currentRecords);
+      } catch (error) {
+        showError(`Não foi possível salvar as alterações: ${error.message}`);
+        render(currentRecords);
+        return false;
+      }
+      notice.classList.remove("error");
+      notice.textContent = successMessage;
+      return true;
+    }
+
+    function render(records) {
+      currentRecords = records;
+      const released = materials.filter((material) =>
+        isReleased(records[material.number], material.number)
+      ).length;
+      document.getElementById("total-count").textContent = materials.length;
+      document.getElementById("pending-count").textContent = materials.length - released;
+      document.getElementById("done-count").textContent = released;
+      const visibleMaterials = materialFilter === "pending"
+        ? materials.filter((material) => !isReleased(records[material.number], material.number))
+        : materialFilter === "released"
+          ? materials.filter((material) => isReleased(records[material.number], material.number))
+          : materials;
+      const heading = materialFilter === "pending" ? "Aguardando liberação"
+        : materialFilter === "released" ? "Liberados para produção"
+          : "Materiais no histórico";
+      document.getElementById("material-list-heading").textContent = heading;
+      document.getElementById("list-count").textContent =
+        `${visibleMaterials.length} ${visibleMaterials.length === 1 ? "material" : "materiais"}`;
+      for (const filterButton of document.querySelectorAll(".stat-filter")) {
+        filterButton.setAttribute("aria-pressed", String(filterButton.dataset.filter === materialFilter));
+      }
+
+      list.replaceChildren();
+      if (visibleMaterials.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "notice";
+        empty.textContent = materials.length === 0
+          ? "Os materiais encontrados como NEW aparecerão aqui e permanecerão no histórico."
+          : materialFilter === "pending"
+            ? "Todos os materiais do histórico concluíram as etapas e foram liberados."
+            : materialFilter === "released"
+              ? "Ainda não há materiais com todas as etapas concluídas."
+              : "Nenhum material foi encontrado.";
+        list.append(empty);
+      }
+
+      for (const material of visibleMaterials) {
+        const record = records[material.number];
+        if (!record) {
+          throw new Error(`Não foi possível inicializar o histórico do material ${material.number}.`);
+        }
+        const materialFlow = getMaterialFlow(material.number);
+        const isEightItem = materialFlow === "eight";
+        const isLegacyEightItem = materialFlow === "legacy-eight";
+        const isComplexFlow = materialFlow === "seven" || materialFlow === "legacy-seven";
+        const released = isReleased(record, material.number);
+        const card = document.createElement("details");
+        card.className = `material-card${material.isNew ? "" : " history-card"}`;
+
+        const header = document.createElement("summary");
+        header.className = "material-header material-summary";
+        const details = document.createElement("div");
+        details.className = "history-summary-main";
+        const description = document.createElement("span");
+        description.className = "history-name";
+        description.textContent = material.description;
+        const number = document.createElement("span");
+        number.className = "history-number";
+        const itemNumber = document.createElement("strong");
+        itemNumber.textContent = material.number.trim();
+        number.append("Item number ", itemNumber);
+        details.append(description, number);
+        const materialMeta = document.createElement("div");
+        materialMeta.className = "material-meta";
+        materialMeta.textContent =
+          `Primeira vez em NEW: ${formatDate(material.firstSeenAt)} · Última vez em NEW: ${formatDate(material.lastSeenAt)}`;
+        const badges = document.createElement("div");
+        badges.className = "badges";
+        const status = document.createElement("span");
+        status.className = `badge ${material.isNew ? "badge-status" : "badge-type"}`;
+        status.textContent = material.isNew ? material.status : "FORA DA CONSULTA NEW";
+        const type = document.createElement("span");
+        type.className = "badge badge-type";
+        type.textContent = materialFlow === "seven" ? "Tipo 7-Item"
+          : materialFlow === "eight" ? "Tipo 8-Item"
+            : materialFlow === "legacy-seven" ? "Histórico legado · fluxo 68274"
+              : "Histórico legado · fluxo 1001";
+        badges.append(status, type);
+        if (released) {
+          const releaseStatus = document.createElement("span");
+          releaseStatus.className = "badge badge-type";
+          releaseStatus.textContent = "LIBERADO PARA PRODUÇÃO";
+          badges.append(releaseStatus);
+        }
+        header.append(details, badges);
+        card.append(header);
+
+        const timeline = document.createElement("div");
+        timeline.className = "timeline";
+        const timelineTitle = document.createElement("div");
+        timelineTitle.className = "timeline-title";
+        timelineTitle.textContent = material.isNew
+          ? (isEightItem ? "MATERIAL E MASTER DATA" : isComplexFlow ? "FLUXO COMPLEXO DO 7-ITEM" : "HISTÓRICO LEGADO")
+          : `ETAPAS CONFIGURADAS · ${isEightItem ? "MASTER DATA" : isComplexFlow ? "7-ITEM" : "HISTÓRICO LEGADO"}`;
+        timeline.append(materialMeta);
+        timeline.append(timelineTitle);
+        const steps = document.createElement("div");
+        steps.className = "steps";
+        if (isEightItem || isLegacyEightItem) {
+          const rejectedCases = record.rejectedCases;
+          const rejectedDetail = rejectedCases.length
+            ? ` · Q-Case reprovado anteriormente: ${rejectedCases[rejectedCases.length - 1].number}`
+            : "";
+          const currentCase = record.qCaseNumber.trim();
+          const qaYes = record.qaApproved === true;
+          const qaNo = record.qaApproved === false;
+
+          function addStep(labelText, detailText, state, control) {
+            const step = document.createElement("div");
+            step.className = `step${state.done ? " done" : ""}${state.current ? " current" : ""}${state.rejected ? " rejected" : ""}`;
+            const marker = document.createElement("div");
+            marker.className = "step-marker";
+            const content = document.createElement("div");
+            content.className = "step-content";
+            const label = document.createElement("div");
+            label.className = "step-label";
+            label.textContent = labelText;
+            content.append(label);
+            if (detailText) {
+              const detail = document.createElement("div");
+              detail.className = "step-detail";
+              detail.textContent = detailText;
+              content.append(detail);
+            }
+            if (control) content.append(control);
+            step.append(marker, content);
+            steps.append(step);
+          }
+
+          addStep("Criação no SAP", "Concluída", { done: true });
+          addStep("Aprovação no SAP pelo QA", "Concluída", { done: true });
+          addStep("PAS-X com status “New”", "Material recebido com status NEW", { done: true });
+
+          const configControl = document.createElement("div");
+          configControl.className = "step-control";
+          const configLabel = document.createElement("label");
+          configLabel.className = "check-label";
+          const configCheckbox = document.createElement("input");
+          configCheckbox.type = "checkbox";
+          configCheckbox.checked = Boolean(record.configDone);
+          configCheckbox.disabled = qaYes;
+          configCheckbox.setAttribute("aria-label", `Marcar configuração da Master Data do material ${material.number.trim()} como realizada`);
+          configCheckbox.addEventListener("change", () => {
+            const updated = { ...records, [material.number]: {
+              ...record,
+              configDone: configCheckbox.checked,
+              configDoneAt: configCheckbox.checked ? new Date().toISOString() : null,
+              qCaseNumber: configCheckbox.checked ? record.qCaseNumber : "",
+              qaApproved: null,
+              qaDecisionAt: null,
+              acknowledge: false,
+              acknowledgedAt: null
+            } };
+            saveRecords(updated, "Configuração da Master Data atualizada.", records);
+          });
+          const configText = document.createElement("span");
+          configText.textContent = "Configuração da Master Data realizada";
+          configLabel.append(configCheckbox, configText);
+          configControl.append(configLabel);
+          addStep("Configuração da Master Data", "Conforme procedimento aplicável" + rejectedDetail,
+            { done: Boolean(record.configDone), current: !record.configDone, rejected: qaNo }, configControl);
+
+          const caseControl = document.createElement("div");
+          caseControl.className = "step-control";
+          const caseInput = document.createElement("input");
+          caseInput.className = "case-input";
+          caseInput.type = "text";
+          caseInput.maxLength = 80;
+          caseInput.placeholder = "Informe o número do Q-Case";
+          caseInput.value = record.qCaseNumber;
+          caseInput.disabled = !record.configDone || record.qaApproved !== null;
+          caseInput.setAttribute("aria-label", `Número do Q-Case para o material ${material.number.trim()}`);
+          caseInput.addEventListener("change", () => {
+            const updated = { ...records, [material.number]: { ...record, qCaseNumber: caseInput.value.trim() } };
+            saveRecords(updated, "Número do Q-Case salvo.", records);
+          });
+          caseControl.append(caseInput);
+          addStep("Abertura de Q-Case para o QA", currentCase ? `Q-Case: ${currentCase}` : "Informe o número do Q-Case aberto para o QA",
+            { done: Boolean(currentCase), current: Boolean(record.configDone && !currentCase) }, caseControl);
+
+          const decisionControl = document.createElement("div");
+          decisionControl.className = "step-control decision-options";
+          for (const decision of [true, false]) {
+            const button = document.createElement("button");
+            button.className = `decision-button${record.qaApproved === decision ? (decision ? " selected-yes" : " selected-no") : ""}`;
+            button.type = "button";
+            button.textContent = decision ? "Sim, aprovado" : "Não, reprovado";
+            button.disabled = !record.configDone || !currentCase;
+            button.setAttribute("aria-label", `QA ${decision ? "aprova" : "reprova"} o material ${material.number.trim()}`);
+            button.addEventListener("click", () => {
+              const rejected = !decision && currentCase
+                ? [...record.rejectedCases, { number: currentCase, rejectedAt: new Date().toISOString() }]
+                : record.rejectedCases;
+              const updatedRecord = decision
+                ? { ...record, qaApproved: true, qaDecisionAt: new Date().toISOString() }
+                : {
+                    ...record,
+                    configDone: false,
+                    configDoneAt: null,
+                    qCaseNumber: "",
+                    qaApproved: false,
+                    qaDecisionAt: new Date().toISOString(),
+                    acknowledge: false,
+                    acknowledgedAt: null,
+                    rejectedCases: rejected
+                  };
+              saveRecords({ ...records, [material.number]: updatedRecord },
+                decision ? "Aprovação do QA registrada. Marque Acknowledge para liberar o material." :
+                  "QA reprovou o material. A configuração foi reaberta para correção.", records);
+            });
+            decisionControl.append(button);
+          }
+          addStep("QA aprova?", record.qaApproved === true
+            ? `Aprovado em ${formatDate(record.qaDecisionAt)}`
+            : record.qaApproved === false ? `Reprovado em ${formatDate(record.qaDecisionAt)}` : "Aguardando decisão do QA",
+          { done: qaYes, current: Boolean(record.configDone && currentCase && record.qaApproved === null), rejected: qaNo },
+          decisionControl);
+
+          const acknowledgeControl = document.createElement("div");
+          acknowledgeControl.className = "step-control";
+          const acknowledgeLabel = document.createElement("label");
+          acknowledgeLabel.className = "check-label";
+          const acknowledgeCheckbox = document.createElement("input");
+          acknowledgeCheckbox.type = "checkbox";
+          acknowledgeCheckbox.checked = Boolean(record.acknowledge);
+          acknowledgeCheckbox.disabled = !qaYes;
+          acknowledgeCheckbox.setAttribute("aria-label", `Marcar Acknowledge do material ${material.number.trim()}`);
+          acknowledgeCheckbox.addEventListener("change", () => {
+            const updatedRecord = {
+              ...record,
+              acknowledge: acknowledgeCheckbox.checked,
+              acknowledgedAt: acknowledgeCheckbox.checked ? new Date().toISOString() : null
+            };
+            saveRecords({ ...records, [material.number]: updatedRecord },
+              acknowledgeCheckbox.checked ? "Acknowledge registrado. Material liberado para a linha produtiva." : "Acknowledge removido.",
+              records);
+          });
+          const acknowledgeText = document.createElement("span");
+          acknowledgeText.textContent = "Acknowledge";
+          acknowledgeLabel.append(acknowledgeCheckbox, acknowledgeText);
+          acknowledgeControl.append(acknowledgeLabel);
+          addStep("Acknowledge", record.acknowledge
+            ? `Registrado em ${formatDate(record.acknowledgedAt)}`
+            : qaYes ? "QA aprovou — confirme o Acknowledge para liberar" : "Disponível após aprovação do QA",
+          { done: Boolean(record.acknowledge), current: qaYes && !record.acknowledge }, acknowledgeControl);
+
+          const release = document.createElement("div");
+          release.className = `release-banner${released ? "" : " pending"}`;
+          release.textContent = released ? "LIBERADO PARA A LINHA PRODUTIVA" : "AGUARDANDO CONCLUSÃO DAS ETAPAS";
+          steps.append(release);
+          timeline.append(steps);
+          card.append(timeline);
+        } else {
+          renderSevenItemWorkflow(timeline, records, material, record.workflow);
+          card.append(timeline);
+        }
+        list.append(card);
+      }
+    }
+
+    function showError(message) {
+      notice.classList.add("error");
+      notice.textContent = message;
+    }
+
+    async function getServerState() {
+      const response = await fetch("./api/state", { cache: "no-store" });
+      const state = await response.json();
+      if (!response.ok) throw new Error(state.error || `HTTP ${response.status}`);
+      if (!state || !Array.isArray(state.materials) || !state.records ||
+          typeof state.records !== "object" || Array.isArray(state.records)) {
+        throw new Error("O servidor retornou dados em formato inválido.");
+      }
+      return state;
+    }
+
+    async function migrateLocalProgress(remoteRecords) {
+      const saved = localStorage.getItem("master-data-timeline-v1");
+      if (saved === null) return;
+      const localRecords = JSON.parse(saved);
+      if (!localRecords || typeof localRecords !== "object" || Array.isArray(localRecords)) {
+        throw new Error("Os dados antigos deste navegador estão em formato inválido.");
+      }
+      const fields = ["configDone", "configDoneAt", "qCaseNumber", "qaApproved",
+        "qaDecisionAt", "acknowledge", "acknowledgedAt", "rejectedCases", "workflow"];
+      for (const [number, record] of Object.entries(localRecords)) {
+        if (!initialData[number] || remoteRecords[number]) continue;
+        if (!record || typeof record !== "object" || Array.isArray(record)) {
+          throw new Error(`O registro local do material ${number} está em formato inválido.`);
+        }
+        const patch = Object.fromEntries(fields
+          .filter((field) => Object.hasOwn(record, field))
+          .map((field) => [field, record[field]]));
+        if (Object.keys(patch).length === 0) continue;
+        const response = await fetch("./api/progress", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ number, patch })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      }
+    }
+
+    async function refreshFromServer(showRefreshMessage = false) {
+      const state = await getServerState();
+      const materialsChanged = state.generatedAt !== generatedAt ||
+        JSON.stringify(state.materials) !== JSON.stringify(materials);
+      const recordsChanged = JSON.stringify(state.records) !== lastRemoteRecords;
+      if (materialsChanged) setMaterials(state);
+      if (materialsChanged || recordsChanged) {
+        currentRecords = readRecords(state.records);
+        render(currentRecords);
+        lastRemoteRecords = JSON.stringify(state.records);
+        if (showRefreshMessage) {
+          notice.classList.remove("error");
+          notice.textContent =
+            `Histórico atualizado: ${materials.length} materiais; ${materials.filter((material) => material.isNew).length} aparecem como NEW.`;
+        }
+      } else if (showRefreshMessage && notice.classList.contains("error")) {
+        notice.classList.remove("error");
+        notice.textContent = "Conexão restabelecida. Os dados compartilhados estão atualizados.";
+      }
+    }
+
+    async function start() {
+      try {
+        let state = await getServerState();
+        setMaterials(state);
+        await migrateLocalProgress(state.records);
+        lastRemoteRecords = null;
+        await refreshFromServer();
+        notice.classList.remove("error");
+        notice.textContent = `Histórico compartilhado carregado: ${materials.length} materiais; alterações salvas no Supabase.`;
+        window.setInterval(async () => {
+          try {
+            await refreshFromServer(true);
+          } catch (error) {
+            showError(`Falha ao atualizar os dados compartilhados: ${error.message}`);
+          }
+        }, 15000);
+      } catch (error) {
+        const message = `Não foi possível carregar os dados do Supabase: ${error.message} Verifique a configuração do servidor e do banco.`;
+        showError(message);
+        list.replaceChildren();
+        const errorState = document.createElement("div");
+        errorState.className = "notice error";
+        errorState.textContent = message;
+        list.append(errorState);
+        document.getElementById("total-count").textContent = "—";
+        document.getElementById("pending-count").textContent = "—";
+        document.getElementById("done-count").textContent = "—";
+        document.getElementById("list-count").textContent = "—";
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
