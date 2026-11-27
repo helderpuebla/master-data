@@ -13,6 +13,11 @@ const progressFields = new Set([
   "configDone", "configDoneAt", "qCaseNumber", "qaApproved", "qaDecisionAt",
   "acknowledge", "acknowledgedAt", "rejectedCases", "workflow", "item8"
 ]);
+const materialNumberPattern = /^(?:7|8|68274|1001)\d*$/;
+
+function isMaterialNumber(value) {
+  return typeof value === "string" && value.length <= 20 && materialNumberPattern.test(value);
+}
 
 function loadEnvironmentFile() {
   const filePath = path.join(__dirname, ".env");
@@ -22,8 +27,8 @@ function loadEnvironmentFile() {
     const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
     if (!match || Object.hasOwn(process.env, match[1])) continue;
     let value = match[2];
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
+    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))) {
       value = value.slice(1, -1);
     }
     process.env[match[1]] = value;
@@ -58,7 +63,7 @@ function getSupabaseConfig() {
   return { supabaseUrl: `${parsedUrl.origin}/`, serviceRoleKey };
 }
 
-async function supabaseRequest(endpoint, options = {}) {
+async function supabaseRequest(endpoint, { withCount = false, ...options } = {}) {
   const { supabaseUrl, serviceRoleKey } = getSupabaseConfig();
   const headers = {
     apikey: serviceRoleKey,
@@ -71,34 +76,60 @@ async function supabaseRequest(endpoint, options = {}) {
   }
   const response = await fetch(new URL(`rest/v1/${endpoint}`, supabaseUrl), {
     ...options,
-    headers
+    headers,
+    redirect: "error",
+    signal: AbortSignal.timeout(15000)
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`Supabase respondeu HTTP ${response.status}: ${text.slice(0, 500)}`);
+    let code;
+    try {
+      code = JSON.parse(text)?.code;
+    } catch {
+      // Upstream gateways can return errors in formats other than JSON.
+    }
+    if (endpoint === "rpc/sync_materials" && code === "PT409") {
+      throw Object.assign(new Error("Uma extração mais recente já está salva."), { status: 409 });
+    }
+    if (endpoint === "rpc/try_save_material_progress" && code === "PT409") {
+      throw Object.assign(new Error("O andamento mudou em outra sessão. Os dados serão atualizados."), { status: 409 });
+    }
+    if (endpoint.endsWith("material_progress") && code === "23503") {
+      throw Object.assign(new Error("Material não encontrado no histórico."), { status: 404 });
+    }
+    throw new Error(`Supabase respondeu HTTP ${response.status}.`);
   }
-  return text ? JSON.parse(text) : null;
+  const data = text ? JSON.parse(text) : null;
+  if (!withCount) return data;
+  const match = response.headers.get("content-range")?.match(/\/(\d+)$/);
+  if (!match) throw new Error("Supabase não informou o total de registros.");
+  return { data, total: Number(match[1]) };
 }
 
 async function readAllRows(endpoint) {
   const rows = [];
   const pageSize = 500;
-  for (let offset = 0; ; offset += pageSize) {
+  for (let offset = 0; ; ) {
     const page = await supabaseRequest(endpoint, {
-      headers: { Range: `${offset}-${offset + pageSize - 1}` }
+      headers: { Prefer: "count=exact", Range: `${offset}-${offset + pageSize - 1}` },
+      withCount: true
     });
-    if (!Array.isArray(page)) throw new Error("Supabase retornou uma lista em formato inválido.");
-    rows.push(...page);
-    if (page.length < pageSize) return rows;
+    if (!Array.isArray(page.data)) throw new Error("Supabase retornou uma lista em formato inválido.");
+    rows.push(...page.data);
+    offset += page.data.length;
+    if (!page.data.length || offset >= page.total) return rows;
   }
 }
 
 async function readRequestBody(request, maximumBytes = 65536) {
   const chunks = [];
   let length = 0;
-  for await (const chunk of request) {
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     length += chunk.length;
-    if (length > maximumBytes) throw Object.assign(new Error("Corpo da requisição muito grande."), { status: 413 });
+    if (length > maximumBytes) {
+      request.resume();
+      throw Object.assign(new Error("Corpo da requisição muito grande."), { status: 413 });
+    }
     chunks.push(chunk);
   }
   try {
@@ -115,7 +146,7 @@ function isObject(value) {
 async function getState() {
   const [rows, progressRows, metadata] = await Promise.all([
     readAllRows("material_data?select=material_number,description,status,is_new,first_seen_at,last_seen_at&order=first_seen_at.asc,material_number.asc"),
-    readAllRows("material_progress?select=material_number,progress"),
+    readAllRows("material_progress?select=material_number,progress&order=material_number.asc"),
     supabaseRequest("sync_metadata?select=generated_at&id=eq.true")
   ]);
   const records = {};
@@ -145,6 +176,11 @@ function verifySyncToken(request) {
 }
 
 async function handleApi(request, response, pathname) {
+  if (pathname === "/api/health" && request.method === "GET") {
+    sendJson(response, 200, { application: "master-data" });
+    return;
+  }
+
   if (pathname === "/api/state" && request.method === "GET") {
     sendJson(response, 200, await getState());
     return;
@@ -152,14 +188,25 @@ async function handleApi(request, response, pathname) {
 
   if (pathname === "/api/progress" && request.method === "PATCH") {
     const body = await readRequestBody(request);
-    if (!isObject(body) || typeof body.number !== "string" || !/^\d{1,20}$/.test(body.number) ||
+    if (!isObject(body) || !isMaterialNumber(body.number) ||
         !isObject(body.patch) || Object.keys(body.patch).length === 0 ||
-        Object.keys(body.patch).some((key) => !progressFields.has(key))) {
+        Object.keys(body.patch).some((key) => !progressFields.has(key)) ||
+        (Object.hasOwn(body, "expected") && body.expected !== null && !isObject(body.expected)) ||
+        (Object.hasOwn(body, "importOnly") && body.importOnly !== true)) {
       throw Object.assign(new Error("Número do material ou campos de andamento inválidos."), { status: 400 });
     }
-    const progress = await supabaseRequest("rpc/merge_material_progress", {
+    if (!Object.hasOwn(body, "expected") && body.importOnly !== true) {
+      sendJson(response, 428, { error: "Recarregue a página antes de salvar para verificar a versão do andamento." });
+      return;
+    }
+    const progress = await supabaseRequest("rpc/try_save_material_progress", {
       method: "POST",
-      body: JSON.stringify({ p_material_number: body.number, p_patch: body.patch })
+      body: JSON.stringify({
+        p_material_number: body.number,
+        p_patch: body.patch,
+        p_expected: body.expected ?? null,
+        p_import_only: body.importOnly === true
+      })
     });
     sendJson(response, 200, { number: body.number, progress });
     return;
@@ -176,15 +223,15 @@ async function handleApi(request, response, pathname) {
         body.materials.length > 1000) {
       throw Object.assign(new Error("Formato da extração inválido."), { status: 400 });
     }
-    const legacyMaterials = body.legacyMaterials || [];
+    const legacyMaterials = Object.hasOwn(body, "legacyMaterials") ? body.legacyMaterials : [];
     if (!Array.isArray(legacyMaterials) || legacyMaterials.length > 10000) {
       throw Object.assign(new Error("Histórico legado inválido."), { status: 400 });
     }
     const validateMaterials = (items, legacy = false) => {
       const seen = new Set();
       for (const material of items) {
-        if (!isObject(material) || typeof material.number !== "string" ||
-            !/^\d{1,20}$/.test(material.number) || !material.number.trim() ||
+        if (!isObject(material) || !isMaterialNumber(material.number) ||
+            (!legacy && (!/^[78]/.test(material.number) || material.status !== "NEW")) ||
             typeof material.description !== "string" || typeof material.status !== "string" ||
             seen.has(material.number)) {
           throw Object.assign(new Error("A extração contém material inválido ou duplicado."), { status: 400 });
@@ -220,8 +267,14 @@ async function handleApi(request, response, pathname) {
 
 http.createServer(async (request, response) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
-  const pathname = new URL(request.url, "http://localhost").pathname;
   try {
+    let pathname;
+    try {
+      pathname = new URL(request.url, "http://localhost").pathname;
+    } catch {
+      sendJson(response, 400, { error: "Endereço da requisição inválido." });
+      return;
+    }
     if (pathname.startsWith("/api/")) {
       await handleApi(request, response, pathname);
       return;

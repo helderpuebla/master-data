@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+.vscode/
 .materiais-*.tmp
 .pyinstaller-build/
 atualizar-materiais.spec

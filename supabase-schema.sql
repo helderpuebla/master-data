@@ -35,7 +35,7 @@ declare
   result jsonb := p_base;
   item record;
 begin
-  if jsonb_typeof(p_base) <> 'object' or jsonb_typeof(p_patch) <> 'object' then
+  if jsonb_typeof(p_base) is distinct from 'object' or jsonb_typeof(p_patch) is distinct from 'object' then
     return p_patch;
   end if;
 
@@ -60,7 +60,7 @@ as $$
 declare
   merged_progress jsonb;
 begin
-  if jsonb_typeof(p_patch) <> 'object' then
+  if jsonb_typeof(p_patch) is distinct from 'object' then
     raise exception 'Progress patch must be a JSON object';
   end if;
 
@@ -71,6 +71,51 @@ begin
         updated_at = now()
   returning progress into merged_progress;
   return merged_progress;
+end;
+$$;
+
+create or replace function public.try_save_material_progress(
+  p_material_number text,
+  p_patch jsonb,
+  p_expected jsonb,
+  p_import_only boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  saved_progress jsonb;
+begin
+  if jsonb_typeof(p_patch) is distinct from 'object' then
+    raise exception 'Progress patch must be a JSON object';
+  end if;
+
+  if p_import_only or p_expected is null or p_expected = 'null'::jsonb then
+    insert into public.material_progress(material_number, progress)
+    values (p_material_number, p_patch)
+    on conflict (material_number) do nothing
+    returning progress into saved_progress;
+
+    if p_import_only and not found then
+      select progress into saved_progress
+      from public.material_progress
+      where material_number = p_material_number;
+      return saved_progress;
+    end if;
+  else
+    update public.material_progress
+    set progress = public.jsonb_deep_merge(progress, p_patch),
+        updated_at = now()
+    where material_number = p_material_number and progress = p_expected
+    returning progress into saved_progress;
+  end if;
+
+  if not found then
+    raise exception using errcode = 'PT409', message = 'Material progress changed';
+  end if;
+  return saved_progress;
 end;
 $$;
 
@@ -88,9 +133,19 @@ declare
   item jsonb;
   v_material_number text;
 begin
-  if jsonb_typeof(p_materials) <> 'array' or jsonb_typeof(p_legacy_materials) <> 'array' or
-     p_generated_at is null then
+  if jsonb_typeof(p_materials) is distinct from 'array' or
+     jsonb_typeof(p_legacy_materials) is distinct from 'array' or p_generated_at is null then
     raise exception 'Invalid material snapshot';
+  end if;
+
+  -- Serialize snapshots on the metadata row before modifying materials.
+  insert into public.sync_metadata(id, generated_at)
+  values (true, p_generated_at)
+  on conflict (id) do update set generated_at = excluded.generated_at
+  where sync_metadata.generated_at <= excluded.generated_at;
+
+  if not found then
+    raise exception using errcode = 'PT409', message = 'A newer material snapshot already exists';
   end if;
 
   for item in select value from jsonb_array_elements(p_legacy_materials)
@@ -135,15 +190,13 @@ begin
           is_new = true,
           last_seen_at = excluded.last_seen_at;
   end loop;
-
-  insert into public.sync_metadata(id, generated_at)
-  values (true, p_generated_at)
-  on conflict (id) do update set generated_at = excluded.generated_at;
 end;
 $$;
 
 revoke all on function public.jsonb_deep_merge(jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.merge_material_progress(text, jsonb) from public, anon, authenticated;
+revoke all on function public.try_save_material_progress(text, jsonb, jsonb, boolean) from public, anon, authenticated;
 revoke all on function public.sync_materials(jsonb, timestamptz, jsonb) from public, anon, authenticated;
 grant execute on function public.merge_material_progress(text, jsonb) to service_role;
+grant execute on function public.try_save_material_progress(text, jsonb, jsonb, boolean) to service_role;
 grant execute on function public.sync_materials(jsonb, timestamptz, jsonb) to service_role;
