@@ -27,6 +27,12 @@ Aplicação web para acompanhar os fluxos de materiais 7-Item e 8-Item. O Supaba
 
 O andamento alterado na página é gravado no Supabase. Se o computador servidor estiver desligado, a página servida por ele fica indisponível; os dados já sincronizados permanecem no Supabase.
 
+## Hospedagem do site
+
+A hospedagem precisa executar Node.js para servir a interface e a API. Use `node servidor-site.cjs` como comando de inicialização e configure `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e `MASTER_DATA_SYNC_TOKEN` nas variáveis do ambiente do servidor. O processo lê `PORT` quando a hospedagem define a porta.
+
+Restrinja o acesso à equipe pela rede corporativa ou por um gateway HTTPS com autenticação. O sincronizador Python continua no Windows autorizado a consultar a ADA. Nesse computador, configure `MASTER_DATA_SYNC_URL` para o endereço HTTPS do serviço, terminado em `/api/sync`, e valide se o gateway permite a autenticação do sincronizador.
+
 ## GitHub e dados locais
 
 Não publique `.env`, chaves, tokens, dados de materiais ou exportações da ADA. O arquivo `.env` está no `.gitignore` e deve permanecer somente localmente. Os materiais e o andamento são mantidos no Supabase.

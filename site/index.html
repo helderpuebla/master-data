@@ -293,7 +293,7 @@
     </div>
     <section class="material-list" id="material-list" aria-live="polite"></section>
 
-    <div class="notice" id="notice">
+    <div class="notice" id="notice" role="status">
       Todos os materiais encontrados como NEW permanecem no histórico, mesmo quando deixam de aparecer na consulta. As etapas são compartilhadas pelo Supabase.
     </div>
   </main>
@@ -302,7 +302,10 @@
     let materials = [];
     let generatedAt = null;
     let currentRecords = {};
-    let lastRemoteRecords = null;
+    let remoteRecords = {};
+    let lastRemoteMaterials = null;
+    let saveInProgress = false;
+    let saveSequence = 0;
     function emptyQualityPhase() {
       return {
         configDone: false,
@@ -388,7 +391,9 @@
       });
       generatedAt = feed.generatedAt;
       document.getElementById("snapshot").textContent =
-        `Última extração SQL: ${formatDate(generatedAt)} · PASX06P`;
+        Date.parse(generatedAt) === 0
+          ? "Aguardando a primeira extração SQL."
+          : `Última extração SQL: ${formatDate(generatedAt)} · PASX06P`;
       for (const material of materials) {
         if (!initialData[material.number]) {
           initialData[material.number] = {
@@ -423,16 +428,16 @@
       return {
         ...emptyQualityPhase(),
         ...source,
-        configDone: Boolean(source.configDone),
-        draftDone: Boolean(source.draftDone),
-        circulationDone: Boolean(source.circulationDone),
-        firstSignatureDone: Boolean(source.firstSignatureDone),
-        secondSignatureDone: Boolean(source.secondSignatureDone),
+        configDone: source.configDone === true,
+        draftDone: source.draftDone === true,
+        circulationDone: source.circulationDone === true,
+        firstSignatureDone: source.firstSignatureDone === true,
+        secondSignatureDone: source.secondSignatureDone === true,
         qCaseNumber: typeof source.qCaseNumber === "string" ? source.qCaseNumber : "",
-        effectiveDone: Boolean(source.effectiveDone),
+        effectiveDone: source.effectiveDone === true,
         qaApproved: typeof source.qaApproved === "boolean" ? source.qaApproved : null,
         qaDecisionAt: source.qaDecisionAt || null,
-        rejectedCases: Array.isArray(source.rejectedCases) ? source.rejectedCases : []
+        rejectedCases: normalizeRejectedCases(source.rejectedCases)
       };
     }
 
@@ -443,21 +448,16 @@
         master: normalizeQualityPhase(source.master),
         pvl: normalizeQualityPhase(source.pvl),
         pmbr: normalizeQualityPhase(source.pmbr),
-        pcd: { created: Boolean(pcd.created), doubleChecked: Boolean(pcd.doubleChecked) }
+        pcd: { created: pcd.created === true, doubleChecked: pcd.doubleChecked === true }
       };
     }
 
     function readRecords(savedRecords = currentRecords) {
       const records = { ...savedRecords };
-      if (!records || typeof records !== "object" || Array.isArray(records)) {
-        throw new Error("Os dados salvos no navegador estão em um formato inválido.");
-      }
       for (const [number, record] of Object.entries(initialData)) {
-        const previous = records[number] || {};
-        if (typeof previous !== "object" || Array.isArray(previous)) {
-          throw new Error(`O registro do material ${number} está em um formato inválido.`);
-        }
-        const configDone = Boolean(previous.configDone ?? previous.configured);
+        const saved = savedRecords[number];
+        const previous = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+        const configDone = (previous.configDone ?? previous.configured) === true;
         const qCaseNumber = typeof previous.qCaseNumber === "string" ? previous.qCaseNumber : "";
         const qaApproved = typeof previous.qaApproved === "boolean" &&
           (previous.qaApproved === false || (configDone && qCaseNumber.trim()))
@@ -478,9 +478,9 @@
           qCaseNumber,
           qaApproved,
           qaDecisionAt: previous.qaDecisionAt || null,
-          acknowledge: qaApproved === true && Boolean(previous.acknowledge),
+          acknowledge: qaApproved === true && previous.acknowledge === true,
           acknowledgedAt: previous.acknowledgedAt || null,
-          rejectedCases: Array.isArray(previous.rejectedCases) ? previous.rejectedCases : [],
+          rejectedCases: normalizeRejectedCases(previous.rejectedCases),
           ...(isSevenItem(number) ? { workflow: normalizeSevenItemWorkflow(previous.workflow) } : {})
         };
       }
@@ -488,8 +488,15 @@
     }
 
     function formatDate(value) {
-      if (!value) return "";
-      return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+      const timestamp = typeof value === "string" ? Date.parse(value) : NaN;
+      if (Number.isNaN(timestamp)) return "data indisponível";
+      return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(timestamp);
+    }
+
+    function normalizeRejectedCases(value) {
+      return Array.isArray(value)
+        ? value.filter((entry) => typeof entry?.number === "string" && entry.number.trim())
+        : [];
     }
 
     function phaseApproved(phase, phaseName) {
@@ -536,7 +543,8 @@
       container.append(step);
     }
 
-    function renderSevenItemPhase({ timeline, records, material, phaseName, title, laneClass, phase, enabled, definitions, prefixSteps = [] }) {
+    function renderSevenItemPhase({ timeline, records, material, phaseName, title, laneClass, phase,
+      enabled, definitions, prefixSteps = [], downstreamStarted = false }) {
       const section = document.createElement("section");
       section.className = `workflow-section ${laneClass}`;
       const heading = document.createElement("div");
@@ -568,7 +576,7 @@
           return !phase[later.key];
         });
         const isAfterQa = qaIndex >= 0 && index > qaIndex;
-        const canEdit = priorComplete && noLaterWork &&
+        const canEdit = priorComplete && noLaterWork && !downstreamStarted &&
           (isAfterQa ? phase.qaApproved === true : phase.qaApproved === null);
         let detail = definition.detail || "";
         let control;
@@ -622,7 +630,8 @@
           input.disabled = !canEdit;
           input.setAttribute("aria-label", `Número do Q-Case de ${title} do material ${material.number.trim()}`);
           input.addEventListener("change", () => {
-            const updatedPhase = { ...phase, [definition.key]: input.value.trim() };
+            input.value = input.value.trim();
+            const updatedPhase = { ...phase, [definition.key]: input.value };
             saveRecords({
               ...records,
               [material.number]: {
@@ -683,9 +692,8 @@
 
     function renderSevenItemWorkflow(timeline, records, material, workflow) {
       const masterReady = phaseApproved(workflow.master, "master");
-      const pvlReady = phaseApproved(workflow.pvl, "pvl");
-      const pmbrReady = phaseApproved(workflow.pmbr, "pmbr");
-      const dataComplete = pvlReady && pmbrReady;
+      const pvlReady = masterReady && phaseApproved(workflow.pvl, "pvl");
+      const dataComplete = pvlReady && phaseApproved(workflow.pmbr, "pmbr");
 
       renderSevenItemPhase({
         timeline, records, material, phaseName: "master", title: "1. Material e Master Data",
@@ -713,7 +721,8 @@
       ];
       renderSevenItemPhase({
         timeline, records, material, phaseName: "pvl", title: "2. PVL", laneClass: "lane-pvl",
-        phase: workflow.pvl, enabled: masterReady, definitions: pvlSteps
+        phase: workflow.pvl, enabled: masterReady, definitions: pvlSteps,
+        downstreamStarted: workflow.pvl.effectiveDone && workflow.pmbr.draftDone
       });
 
       const pmbrSteps = [
@@ -727,7 +736,8 @@
       ];
       renderSevenItemPhase({
         timeline, records, material, phaseName: "pmbr", title: "3. PMBR", laneClass: "lane-pmbr",
-        phase: workflow.pmbr, enabled: pvlReady, definitions: pmbrSteps
+        phase: workflow.pmbr, enabled: pvlReady, definitions: pmbrSteps,
+        downstreamStarted: workflow.pmbr.effectiveDone && workflow.pcd.created
       });
 
       const dataBanner = document.createElement("div");
@@ -790,9 +800,11 @@
     }
 
     async function saveRecords(updated, successMessage, previousRecords) {
+      if (saveInProgress) return false;
       const changedNumbers = Object.keys(updated).filter((number) =>
         JSON.stringify(updated[number]) !== JSON.stringify(previousRecords[number])
       );
+      if (changedNumbers.length === 0) return true;
       if (changedNumbers.length !== 1) {
         showError("Não foi possível identificar com segurança o material alterado.");
         return false;
@@ -814,27 +826,38 @@
         return newValue;
       };
       const patch = diff(before, after);
+      saveInProgress = true;
+      saveSequence += 1;
+      list.inert = true;
       try {
         const response = await fetch("./api/progress", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ number, patch })
+          body: JSON.stringify({ number, patch, expected: remoteRecords[number] ?? null }),
+          signal: AbortSignal.timeout(20000)
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-        currentRecords = {
-          ...currentRecords,
-          [number]: { ...(currentRecords[number] || {}), ...result.progress }
-        };
-        currentRecords = readRecords(currentRecords);
-        render(currentRecords);
+        if (!response.ok) {
+          if (response.status === 409) {
+            try {
+              applyServerState(await getServerState());
+            } catch {
+              // The next poll will retry if the network is unavailable.
+            }
+          }
+          throw new Error(result.error || `HTTP ${response.status}`);
+        }
+        remoteRecords[number] = result.progress;
+        notice.classList.remove("error");
+        notice.textContent = successMessage;
       } catch (error) {
         showError(`Não foi possível salvar as alterações: ${error.message}`);
-        render(currentRecords);
         return false;
+      } finally {
+        saveInProgress = false;
+        list.inert = false;
+        render(readRecords(remoteRecords));
       }
-      notice.classList.remove("error");
-      notice.textContent = successMessage;
       return true;
     }
 
@@ -861,6 +884,8 @@
         filterButton.setAttribute("aria-pressed", String(filterButton.dataset.filter === materialFilter));
       }
 
+      const openMaterials = new Set(Array.from(list.querySelectorAll("details[open]"),
+        (card) => card.dataset.number));
       list.replaceChildren();
       if (visibleMaterials.length === 0) {
         const empty = document.createElement("div");
@@ -887,6 +912,8 @@
         const released = isReleased(record, material.number);
         const card = document.createElement("details");
         card.className = `material-card${material.isNew ? "" : " history-card"}`;
+        card.dataset.number = material.number;
+        card.open = openMaterials.has(material.number);
 
         const header = document.createElement("summary");
         header.className = "material-header material-summary";
@@ -947,25 +974,7 @@
           const qaNo = record.qaApproved === false;
 
           function addStep(labelText, detailText, state, control) {
-            const step = document.createElement("div");
-            step.className = `step${state.done ? " done" : ""}${state.current ? " current" : ""}${state.rejected ? " rejected" : ""}`;
-            const marker = document.createElement("div");
-            marker.className = "step-marker";
-            const content = document.createElement("div");
-            content.className = "step-content";
-            const label = document.createElement("div");
-            label.className = "step-label";
-            label.textContent = labelText;
-            content.append(label);
-            if (detailText) {
-              const detail = document.createElement("div");
-              detail.className = "step-detail";
-              detail.textContent = detailText;
-              content.append(detail);
-            }
-            if (control) content.append(control);
-            step.append(marker, content);
-            steps.append(step);
+            appendWorkflowStep(steps, labelText, detailText, state, control);
           }
 
           addStep("Criação no SAP", "Concluída", { done: true });
@@ -1012,7 +1021,8 @@
           caseInput.disabled = !record.configDone || record.qaApproved !== null;
           caseInput.setAttribute("aria-label", `Número do Q-Case para o material ${material.number.trim()}`);
           caseInput.addEventListener("change", () => {
-            const updated = { ...records, [material.number]: { ...record, qCaseNumber: caseInput.value.trim() } };
+            caseInput.value = caseInput.value.trim();
+            const updated = { ...records, [material.number]: { ...record, qCaseNumber: caseInput.value } };
             saveRecords(updated, "Número do Q-Case salvo.", records);
           });
           caseControl.append(caseInput);
@@ -1026,7 +1036,7 @@
             button.className = `decision-button${record.qaApproved === decision ? (decision ? " selected-yes" : " selected-no") : ""}`;
             button.type = "button";
             button.textContent = decision ? "Sim, aprovado" : "Não, reprovado";
-            button.disabled = !record.configDone || !currentCase;
+            button.disabled = !record.configDone || !currentCase || record.qaApproved === decision;
             button.setAttribute("aria-label", `QA ${decision ? "aprova" : "reprova"} o material ${material.number.trim()}`);
             button.addEventListener("click", () => {
               const rejected = !decision && currentCase
@@ -1105,9 +1115,9 @@
     }
 
     async function getServerState() {
-      const response = await fetch("./api/state", { cache: "no-store" });
+      const response = await fetch("./api/state", { cache: "no-store", signal: AbortSignal.timeout(30000) });
       const state = await response.json();
-      if (!response.ok) throw new Error(state.error || `HTTP ${response.status}`);
+      if (!response.ok) throw new Error(state?.error || `HTTP ${response.status}`);
       if (!state || !Array.isArray(state.materials) || !state.records ||
           typeof state.records !== "object" || Array.isArray(state.records)) {
         throw new Error("O servidor retornou dados em formato inválido.");
@@ -1115,7 +1125,7 @@
       return state;
     }
 
-    async function migrateLocalProgress(remoteRecords) {
+    async function migrateLocalProgress() {
       const saved = localStorage.getItem("master-data-timeline-v1");
       if (saved === null) return;
       const localRecords = JSON.parse(saved);
@@ -1123,7 +1133,7 @@
         throw new Error("Os dados antigos deste navegador estão em formato inválido.");
       }
       const fields = ["configDone", "configDoneAt", "qCaseNumber", "qaApproved",
-        "qaDecisionAt", "acknowledge", "acknowledgedAt", "rejectedCases", "workflow"];
+        "qaDecisionAt", "acknowledge", "acknowledgedAt", "rejectedCases", "workflow", "item8"];
       for (const [number, record] of Object.entries(localRecords)) {
         if (!initialData[number] || remoteRecords[number]) continue;
         if (!record || typeof record !== "object" || Array.isArray(record)) {
@@ -1132,68 +1142,89 @@
         const patch = Object.fromEntries(fields
           .filter((field) => Object.hasOwn(record, field))
           .map((field) => [field, record[field]]));
+        if (!Object.hasOwn(patch, "configDone") && Object.hasOwn(record, "configured")) {
+          patch.configDone = record.configured;
+        }
+        if (!Object.hasOwn(patch, "configDoneAt") && Object.hasOwn(record, "configuredAt")) {
+          patch.configDoneAt = record.configuredAt;
+        }
         if (Object.keys(patch).length === 0) continue;
         const response = await fetch("./api/progress", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ number, patch })
+          body: JSON.stringify({ number, patch, importOnly: true }),
+          signal: AbortSignal.timeout(20000)
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        if (result.progress) remoteRecords[number] = result.progress;
       }
     }
 
-    async function refreshFromServer(showRefreshMessage = false) {
-      const state = await getServerState();
+    function applyServerState(state) {
+      const serializedMaterials = JSON.stringify(state.materials);
       const materialsChanged = state.generatedAt !== generatedAt ||
-        JSON.stringify(state.materials) !== JSON.stringify(materials);
-      const recordsChanged = JSON.stringify(state.records) !== lastRemoteRecords;
-      if (materialsChanged) setMaterials(state);
-      if (materialsChanged || recordsChanged) {
-        currentRecords = readRecords(state.records);
-        render(currentRecords);
-        lastRemoteRecords = JSON.stringify(state.records);
-        if (showRefreshMessage) {
-          notice.classList.remove("error");
-          notice.textContent =
-            `Histórico atualizado: ${materials.length} materiais; ${materials.filter((material) => material.isNew).length} aparecem como NEW.`;
-        }
-      } else if (showRefreshMessage && notice.classList.contains("error")) {
-        notice.classList.remove("error");
-        notice.textContent = "Conexão restabelecida. Os dados compartilhados estão atualizados.";
+        serializedMaterials !== lastRemoteMaterials;
+      const recordsChanged = JSON.stringify(state.records) !== JSON.stringify(remoteRecords);
+      if (materialsChanged) {
+        setMaterials(state);
+        lastRemoteMaterials = serializedMaterials;
       }
+      remoteRecords = state.records;
+      return materialsChanged || recordsChanged;
+    }
+
+    function canRefresh() {
+      return !saveInProgress && !document.activeElement?.matches("input.case-input");
     }
 
     async function start() {
       try {
-        let state = await getServerState();
-        setMaterials(state);
-        await migrateLocalProgress(state.records);
-        lastRemoteRecords = null;
-        await refreshFromServer();
+        applyServerState(await getServerState());
+        let migrationError;
+        try {
+          await migrateLocalProgress();
+        } catch (error) {
+          migrationError = error;
+        }
+        render(readRecords(remoteRecords));
         notice.classList.remove("error");
-        notice.textContent = `Histórico compartilhado carregado: ${materials.length} materiais; alterações salvas no Supabase.`;
-        window.setInterval(async () => {
-          try {
-            await refreshFromServer(true);
-          } catch (error) {
-            showError(`Falha ao atualizar os dados compartilhados: ${error.message}`);
-          }
-        }, 15000);
+        if (migrationError) {
+          showError(`Não foi possível importar o andamento deste navegador: ${migrationError.message}`);
+        } else {
+          notice.textContent = `Histórico compartilhado carregado: ${materials.length} materiais; alterações salvas no Supabase.`;
+        }
       } catch (error) {
-        const message = `Não foi possível carregar os dados do Supabase: ${error.message} Verifique a configuração do servidor e do banco.`;
-        showError(message);
-        list.replaceChildren();
-        const errorState = document.createElement("div");
-        errorState.className = "notice error";
-        errorState.textContent = message;
-        list.append(errorState);
-        document.getElementById("total-count").textContent = "—";
-        document.getElementById("pending-count").textContent = "—";
-        document.getElementById("done-count").textContent = "—";
-        document.getElementById("list-count").textContent = "—";
+        showError(`Não foi possível carregar os dados do Supabase: ${error.message}`);
+        window.setTimeout(start, 15000);
+        return;
       }
+
+      let refreshFailed = false;
+      async function poll() {
+        const sequence = saveSequence;
+        try {
+          if (!canRefresh()) return;
+          const state = await getServerState();
+          if (!canRefresh() || sequence !== saveSequence) return;
+          if (applyServerState(state)) {
+            render(readRecords(remoteRecords));
+          }
+          if (refreshFailed) {
+            notice.classList.remove("error");
+            notice.textContent = "Conexão restabelecida. Os dados compartilhados estão atualizados.";
+            refreshFailed = false;
+          }
+        } catch (error) {
+          refreshFailed = true;
+          showError(`Falha ao atualizar os dados compartilhados: ${error.message}`);
+        } finally {
+          window.setTimeout(poll, 15000);
+        }
+      }
+      window.setTimeout(poll, 15000);
     }
+
 
     start();
   </script>

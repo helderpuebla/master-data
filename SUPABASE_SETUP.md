@@ -8,7 +8,9 @@
 4. Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` com os valores do projeto. A chave `service_role` fica somente no servidor: nunca a coloque na página nem a compartilhe.
 5. Configure `ADA_SQL_SERVER` com o endereço do SQL Server fornecido pela equipe de dados. Esse valor fica apenas no `.env` local e não deve ser publicado.
 6. Gere um segredo longo para `MASTER_DATA_SYNC_TOKEN` (por exemplo, com `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`) e use o mesmo `.env` para o site e o sincronizador.
-7. Revise `MASTER_DATA_SYNC_URL` e `PORT` se o servidor for executado em outra porta ou computador.
+7. Revise `MASTER_DATA_SYNC_URL` e `PORT` se o servidor for executado em outra porta ou computador. Se o navegador deve abrir um endereço diferente do servidor de sincronização, defina `MASTER_DATA_SITE_URL`.
+
+Ao atualizar a aplicação, execute novamente todo o `supabase-schema.sql` antes de iniciar o servidor atualizado. O script preserva as tabelas e instala a função que verifica alterações concorrentes no andamento.
 
 ## Uso
 
@@ -19,6 +21,8 @@
 Para iniciar a página sem sincronizar, use `iniciar-site.cmd`. O inicializador usa o armazenamento de certificados do Windows (`--use-system-ca`), sem desativar validação TLS; requer uma versão do Node.js que reconheça essa opção.
 
 Os materiais e o andamento são mantidos no Supabase. O andamento já salvo no `localStorage` deste navegador é migrado para o Supabase quando não existir registro remoto para aquele material.
+
+Se outra sessão alterar o mesmo material entre a leitura e o salvamento, a página informa o conflito e busca a versão atual. Consulte o andamento atualizado antes de tentar salvar de novo.
 
 O executável depende do Microsoft ODBC Driver 18 for SQL Server instalado no computador. Para corresponder ao perfil ADA existente no VS Code, a conexão usa `TrustServerCertificate=yes`; isso não valida o certificado do servidor e aumenta o risco de interceptação TLS. Use somente na rede e no cenário corporativo aprovados. `atualizar-materiais.exe --check-config` verifica a configuração local sem acessar a ADA ou gravar no banco. Para reconstruí-lo após alterar o script, use `python -m PyInstaller --onefile --console --name atualizar-materiais --distpath . --workpath .pyinstaller-build --noconfirm atualizar-materiais.py`.
 

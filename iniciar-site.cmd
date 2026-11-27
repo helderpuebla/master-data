@@ -13,4 +13,5 @@ node --use-system-ca servidor-site.cjs
 if errorlevel 1 (
     echo O servidor web foi encerrado com erro.
     pause
+    exit /b 1
 )

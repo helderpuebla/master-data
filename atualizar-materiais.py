@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
 import time
 import webbrowser
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
     import pyodbc
@@ -25,18 +27,27 @@ ROOT = (
     else Path(__file__).resolve().parent
 )
 DATABASE = "ada"
-SYSTEM_ID = "PASX06P"
+MAX_SNAPSHOT_ROWS = 1000
 SYNC_URL_DEFAULT = "http://localhost:8000/api/sync"
-QUERY = """
-SELECT TOP (1000)
+QUERY = f"""
+SELECT DISTINCT TOP ({MAX_SNAPSHOT_ROWS + 1})
        [Material number],
        [Material description],
        [Status]
 FROM [ada].[dsi].[PASX_ALL_FACT_MM_STATUS]
 WHERE ([Material number] LIKE '7%' OR [Material number] LIKE '8%')
   AND [SYSTEMID] = 'PASX06P'
-  AND [Status] = 'NEW';
+  AND [Status] = 'NEW'
+ORDER BY [Material number];
 """
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+HTTP = build_opener(NoRedirect())
 
 
 def load_environment(path: Path) -> dict[str, str]:
@@ -84,7 +95,7 @@ def query_materials(sql_server: str) -> list[dict[str, str]]:
     )
 
     try:
-        with pyodbc.connect(connection_string, timeout=30) as connection:
+        with closing(pyodbc.connect(connection_string, timeout=30)) as connection:
             connection.timeout = 60
             cursor = connection.cursor()
             cursor.execute(QUERY)
@@ -95,27 +106,33 @@ def query_materials(sql_server: str) -> list[dict[str, str]]:
             f"Detalhe: {error}"
         ) from error
 
+    if len(rows) > MAX_SNAPSHOT_ROWS:
+        raise RuntimeError(
+            f"A consulta excedeu o limite de {MAX_SNAPSHOT_ROWS} linhas. "
+            "Nenhuma extração parcial foi enviada."
+        )
+
     materials_by_number: dict[str, dict[str, str]] = {}
     for row in rows:
         number = "" if row[0] is None else str(row[0]).strip()
         description = "" if row[1] is None else str(row[1]).strip()
         status = "" if row[2] is None else str(row[2]).strip()
-        if not number:
-            raise RuntimeError("A consulta retornou um material sem número.")
-        materials_by_number[number] = {
+        if not re.fullmatch(r"[78][0-9]{0,19}", number) or status != "NEW":
+            raise RuntimeError("A consulta retornou um número de material ou status inválido.")
+        material = {
             "number": number,
             "description": description,
             "status": status,
         }
+        if number in materials_by_number and materials_by_number[number] != material:
+            raise RuntimeError(f"A consulta retornou dados divergentes para o material {number}.")
+        materials_by_number[number] = material
     return list(materials_by_number.values())
 
 
 def sync_to_server(
     payload: dict[str, object], sync_url: str, sync_token: str
 ) -> str:
-    if len(sync_token) < 32:
-        raise RuntimeError("MASTER_DATA_SYNC_TOKEN ausente ou inválido no arquivo .env.")
-
     request = Request(
         sync_url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -126,7 +143,7 @@ def sync_to_server(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=60) as response:
+        with HTTP.open(request, timeout=60) as response:
             result = json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")[:500]
@@ -137,7 +154,7 @@ def sync_to_server(
         raise RuntimeError(
             f"Não foi possível conectar ao servidor local em {sync_url}: {error.reason}"
         ) from error
-    except (TimeoutError, json.JSONDecodeError) as error:
+    except (TimeoutError, ValueError) as error:
         raise RuntimeError(f"Resposta inválida ou timeout do servidor: {error}") from error
 
     message = result.get("message") if isinstance(result, dict) else None
@@ -146,40 +163,28 @@ def sync_to_server(
     return message
 
 
-def _server_health_url(site_url: str) -> str:
-    parts = urlsplit(site_url)
-    return urlunsplit((parts.scheme, parts.netloc, "/api/state", "", ""))
-
-
 def _server_is_responding(health_url: str) -> bool:
     try:
-        with urlopen(health_url, timeout=2):
-            return True
-    except HTTPError:
-        return True
-    except URLError:
+        with HTTP.open(health_url, timeout=2) as response:
+            result = json.loads(response.read(1024))
+            return isinstance(result, dict) and result.get("application") == "master-data"
+    except (OSError, ValueError):
         return False
 
 
-def ensure_site_server(environment: dict[str, str], sync_url: str) -> str:
+def ensure_sync_server(sync_url: str) -> None:
     sync_parts = urlsplit(sync_url)
-    default_site_url = urlunsplit((sync_parts.scheme, sync_parts.netloc, "/", "", ""))
-    site_url = environment.get("MASTER_DATA_SITE_URL", default_site_url)
-    site_parts = urlsplit(site_url)
-    if site_parts.scheme not in ("http", "https") or not site_parts.netloc:
-        raise RuntimeError("MASTER_DATA_SITE_URL não é um endereço HTTP/HTTPS válido.")
-
-    health_url = _server_health_url(site_url)
+    health_url = urlunsplit((sync_parts.scheme, sync_parts.netloc, "/api/health", "", ""))
     if _server_is_responding(health_url):
-        return site_url
-    if site_parts.hostname not in ("localhost", "127.0.0.1", "::1"):
-        raise RuntimeError(f"O servidor remoto não respondeu em {site_url}.")
+        return
+    if sync_parts.scheme != "http" or sync_parts.hostname not in ("localhost", "127.0.0.1"):
+        raise RuntimeError(f"O servidor de sincronização não respondeu em {health_url}.")
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js não foi encontrado para iniciar o servidor do site.")
     flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
     try:
-        subprocess.Popen(
+        process = subprocess.Popen(
             [node, "--use-system-ca", str(ROOT / "servidor-site.cjs")],
             cwd=ROOT,
             creationflags=flags,
@@ -190,9 +195,11 @@ def ensure_site_server(environment: dict[str, str], sync_url: str) -> str:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if _server_is_responding(health_url):
-            return site_url
+            return
+        if process.poll() is not None:
+            break
         time.sleep(0.5)
-    raise RuntimeError(f"O servidor não iniciou em {site_url}.")
+    raise RuntimeError(f"O servidor não iniciou em {health_url}. Verifique a configuração de PORT.")
 
 
 def open_updated_site(site_url: str) -> str:
@@ -201,22 +208,30 @@ def open_updated_site(site_url: str) -> str:
     return f"Sincronização concluída; abra a página manualmente em {site_url}."
 
 
-def verify_setup() -> str:
+def validate_url(url: str, key: str) -> None:
+    try:
+        parts = urlsplit(url)
+        if (parts.scheme in ("http", "https") and parts.hostname and
+                parts.username is None and (parts.port is None or parts.port > 0)):
+            return
+    except ValueError:
+        pass
+    raise RuntimeError(f"{key} não é um endereço HTTP/HTTPS válido.")
+
+
+def verify_setup(environment: dict[str, str], site_url: str) -> str:
     if pyodbc is None:
         raise RuntimeError(
             "A dependência pyodbc não está instalada. Instale-a com: python -m pip install -r requirements.txt"
         )
     if "ODBC Driver 18 for SQL Server" not in pyodbc.drivers():
         raise RuntimeError("O ODBC Driver 18 for SQL Server não está instalado neste computador.")
-    environment = load_environment(ROOT / ".env")
-    if not environment.get("ADA_SQL_SERVER"):
+    if environment.get("ADA_SQL_SERVER") in (None, "", "your-ada-sql-server"):
         raise RuntimeError("ADA_SQL_SERVER ausente no arquivo .env.")
-    if len(environment.get("MASTER_DATA_SYNC_TOKEN", "")) < 32:
+    token = environment.get("MASTER_DATA_SYNC_TOKEN", "")
+    if len(token) < 32 or not re.fullmatch(r"[!-~]+", token):
         raise RuntimeError("MASTER_DATA_SYNC_TOKEN ausente ou inválido no arquivo .env.")
-    sync_url = environment.get("MASTER_DATA_SYNC_URL", SYNC_URL_DEFAULT)
-    parsed_url = urlsplit(sync_url)
-    if parsed_url.scheme not in ("http", "https") or not parsed_url.netloc:
-        raise RuntimeError("MASTER_DATA_SYNC_URL não é um endereço HTTP/HTTPS válido.")
+    validate_url(site_url, "MASTER_DATA_SITE_URL")
     return "Configuração local OK: Python, pyodbc, ODBC Driver 18 e token de sincronização."
 
 
@@ -229,21 +244,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        environment = load_environment(ROOT / ".env")
+        sync_url = environment.get("MASTER_DATA_SYNC_URL", SYNC_URL_DEFAULT)
+        validate_url(sync_url, "MASTER_DATA_SYNC_URL")
+        sync_parts = urlsplit(sync_url)
+        default_site_url = urlunsplit((sync_parts.scheme, sync_parts.netloc, "/", "", ""))
+        site_url = environment.get("MASTER_DATA_SITE_URL", default_site_url)
+        print(verify_setup(environment, site_url))
         if args.check_config:
-            print(verify_setup())
             return 0
 
-        print(verify_setup())
-        environment = load_environment(ROOT / ".env")
-        token = environment.get("MASTER_DATA_SYNC_TOKEN", "")
-        sync_url = environment.get("MASTER_DATA_SYNC_URL", SYNC_URL_DEFAULT)
-        if not token:
-            raise RuntimeError("MASTER_DATA_SYNC_TOKEN não foi configurado no arquivo .env.")
-
+        ensure_sync_server(sync_url)
         print("Conectando à ADA com a autenticação integrada do Windows...")
+        generated_at = datetime.now().astimezone().isoformat()
         materials = query_materials(environment["ADA_SQL_SERVER"])
-        generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
-        site_url = ensure_site_server(environment, sync_url)
         result_message = sync_to_server(
             {
                 "generatedAt": generated_at,
@@ -251,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
                 "legacyMaterials": [],
             },
             sync_url,
-            token,
+            environment["MASTER_DATA_SYNC_TOKEN"],
         )
         print(f"Consulta concluída: {len(materials)} materiais NEW encontrados.")
         print(result_message)
